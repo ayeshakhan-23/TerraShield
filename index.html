@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>TerraShield — Landslide Early Warning</title>
+
+<!-- PWA install support -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#122019">
+
+<!-- iOS home-screen support (Safari ignores the manifest for install behavior) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TerraShield">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<!-- Android/Chrome icon -->
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+  :root{
+    --bg-void:#0B1410;
+    --basalt:#122019;
+    --surface:#182B21;
+    --card:#1E3327;
+    --card-hi:#25402F;
+    --hairline:#2C4536;
+    --text-hi:#EEF4EE;
+    --text-mid:#AEC2B2;
+    --text-low:#6F8A76;
+    --brand:#2FA37B;
+    --brand-soft:#1E4A38;
+    --low:#4FB56B;
+    --moderate:#E3B23C;
+    --high:#E58A3B;
+    --critical:#E5503F;
+    --shadow: 0 12px 28px rgba(0,0,0,0.35);
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+
+  body{
+    background:
+      radial-gradient(circle at 20% 10%, rgba(47,163,123,0.10), transparent 45%),
+      radial-gradient(circle at 80% 90%, rgba(229,80,63,0.06), transparent 40%),
+      var(--bg-void);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:28px 12px;
+    font-family:'Inter', sans-serif;
+  }
+
+  .device{
+    width:390px;
+    max-width:100%;
+    height:780px;
+    background:var(--basalt);
+    border-radius:38px;
+    border:1px solid #223b2c;
+    box-shadow: var(--shadow), 0 0 0 8px rgba(0,0,0,0.25);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+  }
+
+  /* When installed to the home screen, fill the real screen edge-to-edge
+     instead of showing a phone-frame mockup within the phone. */
+  @media (display-mode: standalone), (display-mode: fullscreen) {
+    body{ padding:0; }
+    .device{
+      width:100vw; height:100vh; max-width:none;
+      border-radius:0; border:none; box-shadow:none;
+    }
+    .statusbar{ display:none; }
+    .app-header{ padding-top:calc(env(safe-area-inset-top, 0px) + 14px); }
+    .bottom-nav{ padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 14px); }
+  }
+
+  /* status bar */
+  .statusbar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:14px 24px 6px;
+    font-size:13px; font-weight:600; color:var(--text-hi);
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing:0.02em;
+  }
+  .statusbar .icons{display:flex; gap:6px; align-items:center; color:var(--text-mid);}
+
+  /* app header */
+  .app-header{
+    padding:6px 20px 16px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .brand{display:flex; align-items:center; gap:9px;}
+  .brand-mark{
+    width:30px; height:30px; border-radius:8px;
+    background:linear-gradient(155deg, var(--brand), #1c6b50);
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
+  .brand-name{
+    font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:17px;
+    color:var(--text-hi); letter-spacing:-0.01em;
+  }
+  .sync-pill{
+    display:flex; align-items:center; gap:6px;
+    background:var(--card); border:1px solid var(--hairline);
+    padding:6px 11px; border-radius:20px;
+    font-size:11.5px; color:var(--text-mid); font-weight:600;
+  }
+  .sync-dot{width:6px; height:6px; border-radius:50%; background:var(--low);}
+  .sync-dot.pending{background:var(--moderate); animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
+
+  /* scrollable content */
+  .screen{
+    flex:1; overflow-y:auto; padding:2px 20px 100px;
+    scrollbar-width:none;
+  }
+  .screen::-webkit-scrollbar{display:none;}
+
+  h1.page-title{
+    font-family:'Space Grotesk', sans-serif; font-size:22px; font-weight:700;
+    color:var(--text-hi); margin:6px 0 4px; letter-spacing:-0.01em;
+  }
+  p.page-sub{ color:var(--text-mid); font-size:13.5px; margin-bottom:18px; }
+
+  /* location row */
+  .location-row{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--card); border:1px solid var(--hairline);
+    border-radius:14px; padding:12px 14px; margin:10px 0 18px;
+  }
+  .location-row .loc-left{display:flex; align-items:center; gap:10px;}
+  .location-row .loc-text .name{font-size:14.5px; font-weight:600; color:var(--text-hi);}
+  .location-row .loc-text .state{font-size:12px; color:var(--text-low);}
+  .change-btn{font-size:12px; color:var(--brand); font-weight:600; background:none; border:none; cursor:pointer;}
+
+  /* risk hero card */
+  .risk-hero{
+    background:linear-gradient(160deg, var(--card-hi), var(--surface));
+    border:1px solid var(--hairline);
+    border-radius:22px;
+    padding:22px 20px 20px;
+    display:flex; align-items:center; gap:18px;
+    margin-bottom:16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .risk-hero::after{
+    content:""; position:absolute; inset:0;
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 26px);
+    pointer-events:none;
+  }
+  .gauge-wrap{position:relative; width:118px; height:118px; flex-shrink:0;}
+  .gauge-wrap svg{transform:rotate(-90deg);}
+  .gauge-center{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+  }
+  .gauge-score{font-family:'IBM Plex Mono', monospace; font-size:30px; font-weight:600; color:var(--text-hi); line-height:1;}
+  .gauge-max{font-size:10px; color:var(--text-low); margin-top:1px;}
+  .risk-info{flex:1;}
+  .risk-badge{
+    display:inline-block; font-size:11px; font-weight:700; letter-spacing:0.04em;
+    padding:4px 10px; border-radius:7px; margin-bottom:8px;
+  }
+  .risk-badge.critical{background:rgba(229,80,63,0.18); color:var(--critical);}
+  .risk-badge.high{background:rgba(229,138,59,0.18); color:var(--high);}
+  .risk-title{font-size:14.5px; color:var(--text-hi); font-weight:600; line-height:1.4; margin-bottom:6px;}
+  .risk-meta{font-size:12px; color:var(--text-low);}
+
+  /* stat tiles */
+  .stat-row{display:flex; gap:10px; margin-bottom:18px;}
+  .stat-tile{
+    flex:1; background:var(--card); border:1px solid var(--hairline);
+    border-radius:14px; padding:12px 12px 11px;
+  }
+  .stat-tile .stat-label{font-size:10.5px; color:var(--text-low); font-weight:600; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;}
+  .stat-tile .stat-value{font-family:'IBM Plex Mono', monospace; font-size:18px; color:var(--text-hi); font-weight:600;}
+  .stat-tile .stat-unit{font-size:11px; color:var(--text-mid); font-weight:500;}
+
+  /* warning banner */
+  .warn-banner{
+    background:linear-gradient(135deg, rgba(229,80,63,0.16), rgba(229,80,63,0.06));
+    border:1px solid rgba(229,80,63,0.35);
+    border-radius:16px; padding:14px 15px; margin-bottom:20px;
+    display:flex; gap:12px;
+  }
+  .warn-icon{width:34px; height:34px; border-radius:9px; background:rgba(229,80,63,0.22); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .warn-text .warn-title{font-size:13.5px; font-weight:700; color:#F5B6AC; margin-bottom:3px;}
+  .warn-text .warn-body{font-size:12.5px; color:#D8AFA9; line-height:1.45;}
+  .warn-text .warn-time{font-size:11px; color:#C08D87; margin-top:6px; font-family:'IBM Plex Mono', monospace;}
+
+  .section-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin:22px 0 12px;
+  }
+  .section-head h2{font-size:15px; font-weight:700; color:var(--text-hi); font-family:'Space Grotesk', sans-serif;}
+  .section-head .see-all{font-size:12px; color:var(--brand); font-weight:600;}
+
+  .zone-scroll{display:flex; gap:10px; overflow-x:auto; padding-bottom:6px; margin:0 -20px; padding-left:20px; padding-right:20px; scrollbar-width:none;}
+  .zone-scroll::-webkit-scrollbar{display:none;}
+  .zone-card{
+    min-width:130px; background:var(--card); border:1px solid var(--hairline);
+    border-radius:14px; padding:12px;
+  }
+  .zone-card .zone-name{font-size:12.5px; font-weight:600; color:var(--text-hi); margin-bottom:8px;}
+  .zone-chip{display:inline-block; font-size:10px; font-weight:700; padding:3px 8px; border-radius:6px; letter-spacing:0.03em;}
+  .zone-chip.low{background:rgba(79,181,107,0.18); color:var(--low);}
+  .zone-chip.moderate{background:rgba(227,178,60,0.18); color:var(--moderate);}
+  .zone-chip.high{background:rgba(229,138,59,0.18); color:var(--high);}
+  .zone-chip.critical{background:rgba(229,80,63,0.18); color:var(--critical);}
+  .zone-card .zone-score{font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--text-low); margin-top:8px;}
+
+  .feed-item{
+    display:flex; gap:11px; padding:11px 0; border-bottom:1px solid var(--hairline);
+  }
+  .feed-item:last-child{border-bottom:none;}
+  .feed-icon{width:32px; height:32px; border-radius:9px; background:var(--card); border:1px solid var(--hairline); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .feed-text .feed-title{font-size:12.5px; color:var(--text-hi); font-weight:500; line-height:1.4;}
+  .feed-text .feed-meta{font-size:11px; color:var(--text-low); margin-top:2px;}
+
+  /* MAP SCREEN */
+  .map-area{
+    position:relative; width:calc(100% + 40px); margin-left:-20px;
+    height:400px; background:
+      radial-gradient(circle at 30% 20%, rgba(47,163,123,0.10), transparent 55%),
+      var(--surface);
+    overflow:hidden; border-bottom:1px solid var(--hairline);
+  }
+  .contour{position:absolute; inset:0; width:100%; height:100%; opacity:0.5;}
+  .marker{
+    position:absolute; width:16px; height:16px; border-radius:50%;
+    border:2.5px solid var(--basalt); cursor:pointer;
+    transform:translate(-50%,-50%);
+    box-shadow:0 0 0 4px rgba(255,255,255,0.03);
+  }
+  .marker::after{
+    content:""; position:absolute; inset:-7px; border-radius:50%;
+    border:1.5px solid currentColor; opacity:0.4;
+    animation:ring 2.4s infinite;
+  }
+  .marker.critical{background:var(--critical); color:var(--critical);}
+  .marker.high{background:var(--high); color:var(--high);}
+  .marker.moderate{background:var(--moderate); color:var(--moderate);}
+  .marker.low{background:var(--low); color:var(--low); animation:none;}
+  .marker.low::after{display:none;}
+  @keyframes ring{0%{transform:scale(0.7); opacity:0.5;} 100%{transform:scale(1.5); opacity:0;}}
+  .marker-label{
+    position:absolute; top:20px; left:50%; transform:translateX(-50%);
+    font-size:9.5px; color:var(--text-mid); white-space:nowrap; font-weight:600;
+    text-shadow:0 1px 3px rgba(0,0,0,0.8);
+  }
+
+  .legend-row{display:flex; gap:14px; padding:14px 20px; flex-wrap:wrap;}
+  .legend-item{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-mid); font-weight:600;}
+  .legend-dot{width:8px; height:8px; border-radius:50%;}
+
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0;
+    background:var(--card-hi); border-top:1px solid var(--hairline);
+    border-radius:22px 22px 0 0; padding:18px 20px 22px;
+    transform:translateY(105%); transition:transform 0.32s cubic-bezier(.2,.9,.3,1);
+    box-shadow:0 -14px 30px rgba(0,0,0,0.4);
+  }
+  .sheet.open{transform:translateY(0);}
+  .sheet-handle{width:36px; height:4px; border-radius:3px; background:var(--hairline); margin:0 auto 14px;}
+  .sheet-top{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;}
+  .sheet-title{font-size:16px; font-weight:700; color:var(--text-hi); font-family:'Space Grotesk', sans-serif;}
+  .sheet-sub{font-size:12px; color:var(--text-low); margin-top:2px;}
+  .sheet-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;}
+  .sheet-stat{background:var(--surface); border:1px solid var(--hairline); border-radius:12px; padding:10px 12px;}
+  .sheet-stat .lbl{font-size:10px; color:var(--text-low); font-weight:600; text-transform:uppercase; letter-spacing:0.03em;}
+  .sheet-stat .val{font-family:'IBM Plex Mono', monospace; font-size:15px; color:var(--text-hi); margin-top:4px; font-weight:600;}
+
+  /* buttons */
+  .btn{
+    width:100%; padding:13px; border-radius:13px; border:none;
+    font-size:14px; font-weight:700; cursor:pointer; font-family:'Inter', sans-serif;
+  }
+  .btn-primary{background:var(--brand); color:#0B1410;}
+  .btn-ghost{background:var(--surface); color:var(--text-hi); border:1px solid var(--hairline);}
+
+  /* REPORT SCREEN */
+  .form-label{font-size:12.5px; font-weight:600; color:var(--text-mid); margin:16px 0 9px;}
+  .chip-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .chip{
+    padding:9px 14px; border-radius:11px; border:1px solid var(--hairline);
+    background:var(--card); color:var(--text-mid); font-size:12.5px; font-weight:600;
+    cursor:pointer; transition:all 0.15s;
+  }
+  .chip.active{background:var(--brand-soft); border-color:var(--brand); color:#8FE3C4;}
+
+  .upload-box{
+    border:1.5px dashed var(--hairline); border-radius:16px; padding:26px 16px;
+    text-align:center; cursor:pointer; margin-top:2px; transition:all 0.15s;
+  }
+  .upload-box.attached{border-style:solid; border-color:var(--brand); background:var(--brand-soft);}
+  .upload-box .up-title{font-size:13px; color:var(--text-hi); font-weight:600; margin-top:8px;}
+  .upload-box .up-sub{font-size:11.5px; color:var(--text-low); margin-top:3px;}
+
+  .geo-row{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--card); border:1px solid var(--hairline); border-radius:13px;
+    padding:12px 14px; margin-top:2px;
+  }
+  .geo-row .coords{font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--text-hi);}
+  .geo-row .geo-label{font-size:10.5px; color:var(--text-low); margin-top:2px;}
+
+  textarea{
+    width:100%; background:var(--card); border:1px solid var(--hairline); border-radius:13px;
+    padding:12px 14px; color:var(--text-hi); font-size:13px; font-family:'Inter', sans-serif;
+    resize:none; height:78px; margin-top:2px;
+  }
+  textarea::placeholder{color:var(--text-low);}
+  textarea:focus, .chip:focus, .btn:focus, .marker:focus{outline:2px solid var(--brand); outline-offset:2px;}
+
+  .my-report{
+    display:flex; justify-content:space-between; align-items:center;
+    background:var(--card); border:1px solid var(--hairline); border-radius:13px;
+    padding:12px 14px; margin-bottom:9px;
+  }
+  .my-report .rt-left .rt-type{font-size:12.5px; font-weight:600; color:var(--text-hi);}
+  .my-report .rt-left .rt-time{font-size:11px; color:var(--text-low); margin-top:2px;}
+  .status-pill{font-size:10px; font-weight:700; padding:4px 9px; border-radius:20px; letter-spacing:0.02em;}
+  .status-pill.pending{background:rgba(227,178,60,0.18); color:var(--moderate);}
+  .status-pill.synced{background:rgba(79,181,107,0.18); color:var(--low);}
+
+  /* ALERTS SCREEN */
+  .lang-scroll{display:flex; gap:8px; overflow-x:auto; margin:4px 0 18px; scrollbar-width:none;}
+  .lang-scroll::-webkit-scrollbar{display:none;}
+  .lang-chip{padding:7px 13px; border-radius:20px; font-size:11.5px; font-weight:600; background:var(--card); border:1px solid var(--hairline); color:var(--text-mid); white-space:nowrap; cursor:pointer;}
+  .lang-chip.active{background:var(--brand); color:#0B1410; border-color:var(--brand);}
+
+  .date-divider{font-size:11px; font-weight:700; color:var(--text-low); text-transform:uppercase; letter-spacing:0.05em; margin:18px 0 10px;}
+
+  .alert-card{
+    background:var(--card); border:1px solid var(--hairline); border-radius:15px;
+    padding:14px; margin-bottom:10px; cursor:pointer;
+  }
+  .alert-top{display:flex; gap:11px; align-items:flex-start;}
+  .alert-badge{width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .alert-badge.critical{background:rgba(229,80,63,0.18);}
+  .alert-badge.high{background:rgba(229,138,59,0.18);}
+  .alert-badge.moderate{background:rgba(227,178,60,0.18);}
+  .alert-body{flex:1;}
+  .alert-title{font-size:13.5px; font-weight:700; color:var(--text-hi);}
+  .alert-region{font-size:11.5px; color:var(--text-low); margin-top:2px;}
+  .alert-msg{font-size:12.5px; color:var(--text-mid); margin-top:8px; line-height:1.5;}
+  .alert-time{font-size:10.5px; color:var(--text-low); margin-top:8px; font-family:'IBM Plex Mono', monospace;}
+  .alert-detail{
+    max-height:0; overflow:hidden; transition:max-height 0.25s ease;
+  }
+  .alert-card.expanded .alert-detail{max-height:160px; margin-top:12px; padding-top:12px; border-top:1px solid var(--hairline);}
+  .escalation{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-mid); font-family:'IBM Plex Mono', monospace; flex-wrap:wrap;}
+  .esc-step{background:var(--surface); padding:3px 8px; border-radius:6px; border:1px solid var(--hairline);}
+
+  .settings-block{margin-top:24px;}
+  .toggle-row{display:flex; justify-content:space-between; align-items:center; padding:13px 0; border-bottom:1px solid var(--hairline);}
+  .toggle-row:last-child{border-bottom:none;}
+  .toggle-row .tg-label{font-size:13px; color:var(--text-hi); font-weight:500;}
+  .toggle-row .tg-sub{font-size:11px; color:var(--text-low); margin-top:2px;}
+  .switch{width:42px; height:24px; border-radius:20px; background:var(--hairline); position:relative; cursor:pointer; flex-shrink:0; transition:background 0.2s;}
+  .switch.on{background:var(--brand);}
+  .switch .knob{position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#fff; transition:left 0.2s;}
+  .switch.on .knob{left:20px;}
+
+  /* bottom nav */
+  .bottom-nav{
+    position:absolute; left:0; right:0; bottom:0;
+    background:rgba(18,32,25,0.92); backdrop-filter:blur(14px);
+    border-top:1px solid var(--hairline);
+    display:flex; padding:10px 12px 16px;
+    z-index:20;
+  }
+  .nav-item{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
+    background:none; border:none; cursor:pointer; padding:6px 0;
+  }
+  .nav-item .nav-label{font-size:10.5px; font-weight:600; color:var(--text-low);}
+  .nav-item.active svg{stroke:var(--brand);}
+  .nav-item.active .nav-label{color:var(--brand);}
+  .nav-item svg{stroke:var(--text-low); transition:stroke 0.15s;}
+
+  .toast{
+    position:absolute; left:20px; right:20px; bottom:100px;
+    background:var(--card-hi); border:1px solid var(--brand); border-radius:13px;
+    padding:13px 15px; display:flex; align-items:center; gap:10px;
+    box-shadow:0 10px 24px rgba(0,0,0,0.4);
+    transform:translateY(140%); opacity:0; transition:all 0.3s cubic-bezier(.2,.9,.3,1);
+    z-index:30; font-size:12.5px; color:var(--text-hi); font-weight:500;
+  }
+  .toast.show{transform:translateY(0); opacity:1;}
+
+  .frame-footer{
+    text-align:center; margin-top:16px; font-size:11.5px; color:var(--text-low);
+    font-family:'Inter', sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<div>
+  <div class="device">
+    <div class="statusbar">
+      <span>9:41</span>
+      <div class="icons">
+        <span style="font-family:'IBM Plex Mono',monospace;">4G</span>
+        <span>●●●</span>
+      </div>
+    </div>
+
+    <div class="app-header">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0B1410" stroke-width="2.5"><path d="M3 18l6-10 4 6 3-4 5 8H3z"/></svg>
+        </div>
+        <span class="brand-name">TerraShield</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button id="installBtn" onclick="triggerInstall()" style="display:none; align-items:center; gap:5px; background:var(--brand); color:#0B1410; border:none; border-radius:20px; padding:7px 12px; font-size:11.5px; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0B1410" stroke-width="2.5"><path d="M12 4v12M6 12l6 6 6-6"/><path d="M5 20h14"/></svg>
+          Install
+        </button>
+        <div class="sync-pill" id="syncPill">
+          <div class="sync-dot" id="syncDot"></div>
+          <span id="syncText">Synced</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen" id="screen"></div>
+
+    <div class="toast" id="toast"></div>
+
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="home">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+        <span class="nav-label">Home</span>
+      </button>
+      <button class="nav-item" data-tab="map">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>
+        <span class="nav-label">Map</span>
+      </button>
+      <button class="nav-item" data-tab="report">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+        <span class="nav-label">Report</span>
+      </button>
+      <button class="nav-item" data-tab="alerts">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+        <span class="nav-label">Alerts</span>
+      </button>
+    </nav>
+  </div>
+</div>
+
+<script>
+// ---------- Demo data ----------
+const zones = [
+  {name:"West Kameng", state:"Arunachal Pradesh", score:86, level:"critical", rain:124, x:52, y:16},
+  {name:"Kohima", state:"Nagaland", score:71, level:"high", rain:88, x:78, y:46},
+  {name:"East Khasi Hills", state:"Meghalaya", score:64, level:"high", rain:102, x:29, y:56},
+  {name:"Dima Hasao", state:"Assam", score:45, level:"moderate", rain:56, x:50, y:44},
+  {name:"Aizawl", state:"Mizoram", score:58, level:"moderate", rain:71, x:63, y:80},
+  {name:"Churachandpur", state:"Manipur", score:22, level:"low", rain:19, x:72, y:63},
+  {name:"Gangtok", state:"Sikkim", score:38, level:"moderate", rain:47, x:14, y:15},
+  {name:"West Tripura", state:"Tripura", score:15, level:"low", rain:12, x:22, y:83},
+];
+
+const feedItems = [
+  {title:"Slope crack reported near NH-13, Dirang", meta:"West Kameng · 12 min ago"},
+  {title:"Water seepage spotted along hillside road", meta:"Kohima · 47 min ago"},
+  {title:"Minor debris on approach road, cleared by locals", meta:"East Khasi Hills · 2 hr ago"},
+];
+
+let myReports = [
+  {type:"Slope Movement", time:"Today, 8:14 AM", status:"synced"},
+  {type:"Water Seepage", time:"Yesterday, 6:02 PM", status:"synced"},
+];
+
+const alertsData = [
+  {level:"critical", title:"Critical landslide risk", region:"West Kameng, AR", time:"12:30 PM · Today",
+   msg:"Composite risk score reached 86/100. Avoid travel near steep slopes on NH-13 between Dirang and Bomdila.",
+   window:"Valid for next 6–72 hours", esc:["DC","SDMA","NDMA"]},
+  {level:"high", title:"Elevated risk — heavy rainfall", region:"Kohima, NL", time:"9:05 AM · Today",
+   msg:"Cumulative 24-hr rainfall crossed threshold. Field teams advised to inspect known slip zones near Km 12.",
+   window:"Valid for next 24 hours", esc:["DC","SDMA"]},
+  {level:"moderate", title:"Soil saturation rising", region:"Dima Hasao, AS", time:"6:40 AM · Today",
+   msg:"Soil moisture sensors show a steady rise following two days of continuous rain. Monitoring closely.",
+   window:"Advisory only", esc:["SDMA"]},
+  {level:"high", title:"Slope movement confirmed", region:"East Khasi Hills, ML", time:"7:52 PM · Yesterday",
+   msg:"Citizen-reported crack verified by field officer. Barricades placed 200m from the affected stretch.",
+   window:"Resolved — road reopened", esc:["DC","SDMA"]},
+];
+
+let state = { tab:"home", reportType:null, photoAttached:false, openSheet:null,
+  channels:{sms:true, push:true, ivrs:false}, lang:"English", pending:false };
+
+function levelColor(l){ return {low:"var(--low)", moderate:"var(--moderate)", high:"var(--high)", critical:"var(--critical)"}[l]; }
+function levelLabel(l){ return {low:"LOW", moderate:"MODERATE", high:"HIGH", critical:"CRITICAL"}[l]; }
+
+function gaugeArc(score){
+  const r = 50, c = 2*Math.PI*r;
+  const pct = score/100;
+  const color = score>=75?"var(--critical)":score>=50?"var(--high)":score>=25?"var(--moderate)":"var(--low)";
+  return `<svg width="118" height="118" viewBox="0 0 118 118">
+    <circle cx="59" cy="59" r="${r}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
+    <circle cx="59" cy="59" r="${r}" fill="none" stroke="${color}" stroke-width="10"
+      stroke-dasharray="${c}" stroke-dashoffset="${c*(1-pct)}" stroke-linecap="round"/>
+  </svg>`;
+}
+
+// ---------- Renderers ----------
+function renderHome(){
+  const home = zones[0];
+  return `
+    <h1 class="page-title">Good afternoon</h1>
+    <p class="page-sub">Here's the latest landslide risk picture for your area.</p>
+
+    <div class="location-row">
+      <div class="loc-left">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8FE3C4" stroke-width="2"><path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        <div class="loc-text"><div class="name">${home.name}</div><div class="state">${home.state}</div></div>
+      </div>
+      <button class="change-btn">Change</button>
+    </div>
+
+    <div class="risk-hero">
+      <div class="gauge-wrap">
+        ${gaugeArc(home.score)}
+        <div class="gauge-center"><div class="gauge-score">${home.score}</div><div class="gauge-max">/ 100</div></div>
+      </div>
+      <div class="risk-info">
+        <span class="risk-badge critical">CRITICAL</span>
+        <div class="risk-title">Composite landslide risk is critical for your district.</div>
+        <div class="risk-meta">Updated 12 min ago</div>
+      </div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-tile"><div class="stat-label">Rainfall 24h</div><div class="stat-value">124<span class="stat-unit"> mm</span></div></div>
+      <div class="stat-tile"><div class="stat-label">Soil moisture</div><div class="stat-value">78<span class="stat-unit"> %</span></div></div>
+      <div class="stat-tile"><div class="stat-label">Sensors nearby</div><div class="stat-value">6</div></div>
+    </div>
+
+    <div class="warn-banner">
+      <div class="warn-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#F5B6AC" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></div>
+      <div class="warn-text">
+        <div class="warn-title">Advance warning issued</div>
+        <div class="warn-body">Avoid steep slopes near NH-13 between Dirang and Bomdila. Move to higher ground if you notice new cracks or water seepage.</div>
+        <div class="warn-time">VALID UNTIL 8:00 PM TODAY</div>
+      </div>
+    </div>
+
+    <div class="section-head"><h2>Nearby risk zones</h2><span class="see-all">See map</span></div>
+    <div class="zone-scroll">
+      ${zones.slice(1,6).map(z=>`
+        <div class="zone-card">
+          <div class="zone-name">${z.name}</div>
+          <span class="zone-chip ${z.level}">${levelLabel(z.level)}</span>
+          <div class="zone-score">${z.score}/100</div>
+        </div>`).join("")}
+    </div>
+
+    <div class="section-head"><h2>Recent ground reports</h2><span class="see-all">View all</span></div>
+    ${feedItems.map(f=>`
+      <div class="feed-item">
+        <div class="feed-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8FE3C4" stroke-width="2"><path d="M3 9l9-6 9 6-9 6-9-6z"/><path d="M3 9v6l9 6 9-6V9"/></svg></div>
+        <div class="feed-text"><div class="feed-title">${f.title}</div><div class="feed-meta">${f.meta}</div></div>
+      </div>`).join("")}
+    <div class="frame-footer">Powered by ISRO Bhuvan · IMD · GSI data</div>
+  `;
+}
+
+function renderMap(){
+  return `
+    <h1 class="page-title" style="margin-top:14px;">Risk map</h1>
+    <p class="page-sub">Tap a district to see its current risk profile.</p>
+    <div class="map-area" id="mapArea">
+      <svg class="contour" viewBox="0 0 100 100" preserveAspectRatio="none">
+        ${[18,32,46,60,74].map(y=>`<path d="M0,${y} Q25,${y-8} 50,${y} T100,${y}" stroke="rgba(143,227,196,0.10)" fill="none" stroke-width="0.6"/>`).join("")}
+      </svg>
+      ${zones.map((z,i)=>`
+        <div class="marker ${z.level}" style="left:${z.x}%; top:${z.y}%;" data-idx="${i}" tabindex="0" role="button" aria-label="${z.name}"></div>
+        <div class="marker-label" style="left:${z.x}%; top:calc(${z.y}% + 13px);">${z.name}</div>
+      `).join("")}
+      <div class="sheet" id="sheet"></div>
+    </div>
+    <div class="legend-row">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--low)"></div>Low</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--moderate)"></div>Moderate</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--high)"></div>High</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--critical)"></div>Critical</div>
+    </div>
+    <div class="section-head" style="margin-top:6px;"><h2>All districts</h2></div>
+    ${zones.map(z=>`
+      <div class="feed-item">
+        <div class="feed-icon" style="background:rgba(255,255,255,0.03);"><span style="width:8px;height:8px;border-radius:50%;background:${levelColor(z.level)};display:block;"></span></div>
+        <div class="feed-text" style="flex:1; display:flex; justify-content:space-between; align-items:center;">
+          <div><div class="feed-title">${z.name}</div><div class="feed-meta">${z.state}</div></div>
+          <span class="zone-chip ${z.level}">${z.score}</span>
+        </div>
+      </div>`).join("")}
+  `;
+}
+
+function openSheet(idx){
+  const z = zones[idx];
+  const sheet = document.getElementById("sheet");
+  if(!sheet) return;
+  sheet.innerHTML = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-top">
+      <div><div class="sheet-title">${z.name}</div><div class="sheet-sub">${z.state}</div></div>
+      <span class="zone-chip ${z.level}">${levelLabel(z.level)}</span>
+    </div>
+    <div class="sheet-grid">
+      <div class="sheet-stat"><div class="lbl">Risk score</div><div class="val">${z.score}/100</div></div>
+      <div class="sheet-stat"><div class="lbl">Rainfall 24h</div><div class="val">${z.rain} mm</div></div>
+    </div>
+    <button class="btn btn-primary" onclick="goTab('report')">Report ground conditions here</button>
+  `;
+  sheet.classList.add("open");
+  state.openSheet = idx;
+}
+function closeSheet(){
+  const sheet = document.getElementById("sheet");
+  if(sheet) sheet.classList.remove("open");
+  state.openSheet = null;
+}
+
+function renderReport(){
+  const types = ["Slope Movement","Cracks","Water Seepage","Road Block","Other"];
+  return `
+    <h1 class="page-title" style="margin-top:14px;">Report ground conditions</h1>
+    <p class="page-sub">Your reports help validate risk zones for everyone nearby.</p>
+
+    <div class="form-label">What did you observe?</div>
+    <div class="chip-row" id="typeChips">
+      ${types.map(t=>`<button class="chip ${state.reportType===t?'active':''}" data-type="${t}">${t}</button>`).join("")}
+    </div>
+
+    <div class="form-label">Photo or video</div>
+    <div class="upload-box ${state.photoAttached?'attached':''}" id="uploadBox">
+      ${state.photoAttached ? `
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8FE3C4" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+        <div class="up-title">Photo attached</div><div class="up-sub">Tap to replace</div>
+      ` : `
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6F8A76" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>
+        <div class="up-title">Tap to attach a photo</div><div class="up-sub">JPEG or MP4, up to 25 MB</div>
+      `}
+    </div>
+
+    <div class="form-label">Location</div>
+    <div class="geo-row">
+      <div><div class="coords">27.3664° N, 92.4227° E</div><div class="geo-label">Auto-captured · Dirang, West Kameng</div></div>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8FE3C4" stroke-width="2"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v6h-6"/></svg>
+    </div>
+
+    <div class="form-label">Description <span style="color:var(--text-low); font-weight:400;">(optional)</span></div>
+    <textarea placeholder="e.g. New crack appeared along the hillside above the tea stall, roughly 3 metres long."></textarea>
+
+    <button class="btn btn-primary" style="margin-top:20px;" id="submitReport">Submit report</button>
+
+    <div class="section-head"><h2>My reports</h2></div>
+    <div id="myReportsList">
+      ${myReports.map(r=>`
+        <div class="my-report">
+          <div class="rt-left"><div class="rt-type">${r.type}</div><div class="rt-time">${r.time}</div></div>
+          <span class="status-pill ${r.status}">${r.status==='synced'?'Synced':'Pending sync'}</span>
+        </div>`).join("")}
+    </div>
+  `;
+}
+
+function renderAlerts(){
+  const langs = ["English","हिंदी","অসমীয়া","নেপালি","मणिपुरी"];
+  return `
+    <h1 class="page-title" style="margin-top:14px;">Alerts</h1>
+    <p class="page-sub">Escalation-verified warnings for your subscribed districts.</p>
+
+    <div class="lang-scroll">
+      ${langs.map(l=>`<button class="lang-chip ${state.lang===l?'active':''}" data-lang="${l}">${l}</button>`).join("")}
+    </div>
+
+    <div class="date-divider">Today</div>
+    ${alertsData.filter(a=>a.time.includes("Today")).map((a,i)=>renderAlertCard(a,i)).join("")}
+    <div class="date-divider">Yesterday</div>
+    ${alertsData.filter(a=>a.time.includes("Yesterday")).map((a,i)=>renderAlertCard(a,i+10)).join("")}
+
+    <div class="settings-block">
+      <div class="section-head" style="margin-top:0;"><h2>Alert channels</h2></div>
+      <div class="toggle-row">
+        <div><div class="tg-label">SMS</div><div class="tg-sub">Works without internet</div></div>
+        <div class="switch ${state.channels.sms?'on':''}" data-ch="sms"><div class="knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-label">App push notifications</div><div class="tg-sub">Instant, when connected</div></div>
+        <div class="switch ${state.channels.push?'on':''}" data-ch="push"><div class="knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-label">IVRS voice calls</div><div class="tg-sub">Automated call for critical alerts</div></div>
+        <div class="switch ${state.channels.ivrs?'on':''}" data-ch="ivrs"><div class="knob"></div></div>
+      </div>
+    </div>
+  `;
+}
+function renderAlertCard(a,i){
+  const iconStroke = a.level==="critical"?"#F5B6AC":a.level==="high"?"#F5CBA0":"#F0DA9E";
+  return `
+    <div class="alert-card" data-alert="${i}">
+      <div class="alert-top">
+        <div class="alert-badge ${a.level}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${iconStroke}" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        </div>
+        <div class="alert-body">
+          <div class="alert-title">${a.title}</div>
+          <div class="alert-region">${a.region}</div>
+          <div class="alert-msg">${a.msg}</div>
+          <div class="alert-time">${a.time.toUpperCase()}</div>
+        </div>
+      </div>
+      <div class="alert-detail">
+        <div class="form-label" style="margin-top:0;">${a.window}</div>
+        <div class="escalation">
+          ${a.esc.map((e,idx)=>`<span class="esc-step">${e}</span>${idx<a.esc.length-1?'<span>→</span>':''}`).join("")}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ---------- Nav / events ----------
+function goTab(tab){
+  state.tab = tab;
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active", n.dataset.tab===tab));
+  render();
+}
+function render(){
+  const el = document.getElementById("screen");
+  if(state.tab==="home") el.innerHTML = renderHome();
+  else if(state.tab==="map") el.innerHTML = renderMap();
+  else if(state.tab==="report") el.innerHTML = renderReport();
+  else if(state.tab==="alerts") el.innerHTML = renderAlerts();
+  bindScreenEvents();
+}
+
+function showToast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"), 2600);
+}
+
+function setSync(pending){
+  const dot = document.getElementById("syncDot");
+  const txt = document.getElementById("syncText");
+  if(pending){ dot.classList.add("pending"); txt.textContent = "Syncing…"; }
+  else { dot.classList.remove("pending"); txt.textContent = "Synced"; }
+}
+
+function bindScreenEvents(){
+  if(state.tab==="map"){
+    document.querySelectorAll(".marker").forEach(m=>{
+      m.addEventListener("click", ()=>openSheet(parseInt(m.dataset.idx)));
+      m.addEventListener("keypress", (e)=>{ if(e.key==="Enter") openSheet(parseInt(m.dataset.idx)); });
+    });
+    document.getElementById("mapArea").addEventListener("click",(e)=>{
+      if(e.target.id==="mapArea") closeSheet();
+    });
+  }
+  if(state.tab==="report"){
+    document.querySelectorAll("#typeChips .chip").forEach(c=>{
+      c.addEventListener("click", ()=>{ state.reportType = c.dataset.type; render(); });
+    });
+    document.getElementById("uploadBox").addEventListener("click", ()=>{
+      state.photoAttached = !state.photoAttached; render();
+    });
+    document.getElementById("submitReport").addEventListener("click", ()=>{
+      const type = state.reportType || "Other";
+      myReports.unshift({type, time:"Just now", status:"pending"});
+      state.reportType = null; state.photoAttached = false;
+      setSync(true);
+      showToast("Report queued — will sync when back online");
+      render();
+      setTimeout(()=>{
+        myReports = myReports.map(r=> r.time==="Just now" ? {...r, status:"synced"} : r);
+        setSync(false);
+        if(state.tab==="report") render();
+      }, 3200);
+    });
+  }
+  if(state.tab==="alerts"){
+    document.querySelectorAll(".lang-chip").forEach(c=>{
+      c.addEventListener("click", ()=>{ state.lang = c.dataset.lang; render(); });
+    });
+    document.querySelectorAll(".alert-card").forEach(c=>{
+      c.addEventListener("click", ()=> c.classList.toggle("expanded"));
+    });
+    document.querySelectorAll(".switch").forEach(s=>{
+      s.addEventListener("click", ()=>{
+        const ch = s.dataset.ch;
+        state.channels[ch] = !state.channels[ch];
+        render();
+      });
+    });
+  }
+}
+
+document.querySelectorAll(".nav-item").forEach(n=>{
+  n.addEventListener("click", ()=> goTab(n.dataset.tab));
+});
+
+render();
+
+// ---------- PWA install support ----------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  });
+}
+
+let deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  const btn = document.getElementById("installBtn");
+  if (btn) btn.style.display = "flex";
+});
+
+function triggerInstall(){
+  const btn = document.getElementById("installBtn");
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.finally(() => {
+    deferredPrompt = null;
+    if (btn) btn.style.display = "none";
+  });
+}
+</script>
+</body>
+</html>
